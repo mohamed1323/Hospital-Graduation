@@ -1,0 +1,6 @@
+flask==2.3.3
+flask-mongoengine==1.0.0
+python-dotenv==1.0.0
+mongoengine==0.24.0
+dnspython==2.3.0
+pymongo==4.3.1
