@@ -1,123 +1,88 @@
 from flask import Blueprint, jsonify, request
-from app.models.user import User
+from app.controllers.user import UserController
 from http import HTTPStatus
+from app.middleware.auth import token_required, admin_required
 
 bp = Blueprint('users', __name__, url_prefix='/api/users')
 
-@bp.route('/', methods=['POST'])
-def create_user():
+@bp.route('/register', methods=['POST'])
+def register():
+    """Register a new user"""
     try:
         data = request.get_json()
-        
-        # Validate required fields
-        if not data or not data.get('username') or not data.get('email'):
-            return jsonify({
-                'error': 'Username and email are required'
-            }), HTTPStatus.BAD_REQUEST
-
-        # Check if user already exists
-        if User.objects(username=data['username']).first():
-            return jsonify({
-                'error': 'Username already exists'
-            }), HTTPStatus.CONFLICT
-
-        if User.objects(email=data['email']).first():
-            return jsonify({
-                'error': 'Email already exists'
-            }), HTTPStatus.CONFLICT
-
-        # Create new user
-        user = User(
-            username=data['username'],
-            email=data['email']
-        )
-        user.save()
-
-        return jsonify(user.to_dict()), HTTPStatus.CREATED
-
+        response, status_code = UserController.create_user(data)
+        return jsonify(response), status_code
     except Exception as e:
-        return jsonify({
-            'error': str(e)
-        }), HTTPStatus.INTERNAL_SERVER_ERROR
+        return jsonify({'error': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@bp.route('/login', methods=['POST'])
+def login():
+    """Login user and return token"""
+    try:
+        data = request.get_json()
+        response, status_code = UserController.login(data)
+        return jsonify(response), status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@bp.route('/verify-token', methods=['POST'])
+def verify_token():
+    """Verify JWT token"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Missing or invalid token'}), HTTPStatus.UNAUTHORIZED
+        
+        token = auth_header.split(' ')[1]
+        response, status_code = UserController.verify_token(token)
+        return jsonify(response), status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @bp.route('/', methods=['GET'])
+@token_required
+@admin_required
 def get_users():
+    """Get all users (admin only)"""
     try:
-        users = User.objects.all()
-        return jsonify([user.to_dict() for user in users]), HTTPStatus.OK
+        response, status_code = UserController.get_all_users()
+        return jsonify(response), status_code
     except Exception as e:
-        return jsonify({
-            'error': str(e)
-        }), HTTPStatus.INTERNAL_SERVER_ERROR
+        return jsonify({'error': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @bp.route('/<user_id>', methods=['GET'])
+@token_required
 def get_user(user_id):
+    """Get user by ID"""
     try:
-        user = User.objects(id=user_id).first()
-        if not user:
-            return jsonify({
-                'error': 'User not found'
-            }), HTTPStatus.NOT_FOUND
-
-        return jsonify(user.to_dict()), HTTPStatus.OK
+        response, status_code = UserController.get_user_by_id(user_id)
+        return jsonify(response), status_code
     except Exception as e:
-        return jsonify({
-            'error': str(e)
-        }), HTTPStatus.INTERNAL_SERVER_ERROR
+        return jsonify({'error': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @bp.route('/<user_id>', methods=['PUT'])
+@token_required
 def update_user(user_id):
+    """Update user"""
     try:
+        # Check if user is updating their own profile or is an admin
+        current_user = request.current_user
+        if str(current_user.id) != user_id and current_user.role != 'admin':
+            return jsonify({'error': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+
         data = request.get_json()
-        user = User.objects(id=user_id).first()
-        
-        if not user:
-            return jsonify({
-                'error': 'User not found'
-            }), HTTPStatus.NOT_FOUND
-
-        # Check username uniqueness if it's being updated
-        if data.get('username') and data['username'] != user.username:
-            if User.objects(username=data['username']).first():
-                return jsonify({
-                    'error': 'Username already exists'
-                }), HTTPStatus.CONFLICT
-
-        # Check email uniqueness if it's being updated
-        if data.get('email') and data['email'] != user.email:
-            if User.objects(email=data['email']).first():
-                return jsonify({
-                    'error': 'Email already exists'
-                }), HTTPStatus.CONFLICT
-
-        # Update fields
-        if data.get('username'):
-            user.username = data['username']
-        if data.get('email'):
-            user.email = data['email']
-
-        user.save()
-        return jsonify(user.to_dict()), HTTPStatus.OK
-
+        response, status_code = UserController.update_user(user_id, data)
+        return jsonify(response), status_code
     except Exception as e:
-        return jsonify({
-            'error': str(e)
-        }), HTTPStatus.INTERNAL_SERVER_ERROR
+        return jsonify({'error': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @bp.route('/<user_id>', methods=['DELETE'])
+@token_required
+@admin_required
 def delete_user(user_id):
+    """Delete user (admin only)"""
     try:
-        user = User.objects(id=user_id).first()
-        if not user:
-            return jsonify({
-                'error': 'User not found'
-            }), HTTPStatus.NOT_FOUND
-
-        user.delete()
-        return jsonify({
-            'message': 'User deleted successfully'
-        }), HTTPStatus.OK
+        response, status_code = UserController.delete_user(user_id)
+        return jsonify(response), status_code
     except Exception as e:
-        return jsonify({
-            'error': str(e)
-        }), HTTPStatus.INTERNAL_SERVER_ERROR 
+        return jsonify({'error': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
